@@ -4,7 +4,43 @@ use winit::{
   window::WindowBuilder,
 };
 
+use wgpu::util::DeviceExt;
+
 use winit::window::Window;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+impl Vertex {
+    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                }
+            ]
+        }
+    }
+}
+
+const VERTICES: &[Vertex] = &[
+    Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
+    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
+    Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+];
 
 struct State {
     surface: wgpu::Surface,
@@ -14,8 +50,8 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
     window: Window,
     render_pipeline: wgpu::RenderPipeline,
-    render_pipeline_alt: wgpu::RenderPipeline,
-    use_alt: bool,
+    vertex_buffer: wgpu::Buffer,
+    num_vertices: u32,
 }
 
 impl State {
@@ -53,8 +89,6 @@ impl State {
 
         surface.configure(&device, &config);
 
-        // Original shader 
-
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -71,53 +105,13 @@ impl State {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main", // 1.
-                buffers: &[], // 2.
-            },
-            fragment: Some(wgpu::FragmentState { // 3.
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState { // 4.
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList, // 1.
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw, // 2.
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None, // 1.
-            multisample: wgpu::MultisampleState {
-                count: 1, // 2.
-                mask: !0, // 3.
-                alpha_to_coverage_enabled: false, // 4.
-            },
-            multiview: None, // 5.
-        });
-
-        // Challenge shader
-
-        let shader_alt = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Alt shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader_alt.wgsl").into()),
-        });
-
-        let render_pipeline_alt = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader_alt,
                 entry_point: "vs_main",
-                buffers: &[],
+                buffers: &[
+                    Vertex::desc()
+                ],
             },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader_alt,
+            fragment: Some(wgpu::FragmentState { 
+                module: &shader,
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
@@ -128,7 +122,7 @@ impl State {
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
+                front_face: wgpu::FrontFace::Ccw, 
                 cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
@@ -136,13 +130,22 @@ impl State {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: 1, 
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
-        });
-            
+        });         
+        
+        let vertex_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(VERTICES),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
+        let num_vertices = VERTICES.len() as u32;
 
         Self {
             window,
@@ -152,8 +155,8 @@ impl State {
             config,
             size,
             render_pipeline,
-            render_pipeline_alt,
-            use_alt: false,
+            vertex_buffer,
+            num_vertices,
         }
     }
 
@@ -171,20 +174,21 @@ impl State {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            WindowEvent::KeyboardInput {
-                input: KeyboardInput {
-                    state, 
-                    virtual_keycode: Some(VirtualKeyCode::Space),
-                    ..
-                },
-                ..
-            } => {
-                self.use_alt = *state == ElementState::Released;
-                true
-            },
-            _ => false
-        }
+        // match event {
+        //     WindowEvent::KeyboardInput {
+        //         input: KeyboardInput {
+        //             state, 
+        //             virtual_keycode: Some(VirtualKeyCode::Space),
+        //             ..
+        //         },
+        //         ..
+        //     } => {
+        //         self.use_alt = *state == ElementState::Released;
+        //         true
+        //     },
+        //     _ => false
+        // }
+        false
     }
 
     fn update(&mut self) {}
@@ -205,9 +209,9 @@ impl State {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.8,
-                        g: 0.2,
-                        b: 0.4,
+                        r: 0.15,
+                        g: 0.1,
+                        b: 0.2,
                         a: 1.0,
                     }),
                     store: true,
@@ -216,12 +220,9 @@ impl State {
             depth_stencil_attachment: None,
         });
 
-        render_pass.set_pipeline(if self.use_alt {
-            &self.render_pipeline
-        } else {
-            &self.render_pipeline_alt
-        });
-        render_pass.draw(0..3, 0..1);
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.draw(0..self.num_vertices, 0..1);
 
         drop(render_pass);        
         
