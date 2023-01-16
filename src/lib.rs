@@ -13,8 +13,9 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     window: Window,
-    color: wgpu::Color,
     render_pipeline: wgpu::RenderPipeline,
+    render_pipeline_alt: wgpu::RenderPipeline,
+    use_alt: bool,
 }
 
 impl State {
@@ -52,12 +53,7 @@ impl State {
 
         surface.configure(&device, &config);
 
-        let color = wgpu::Color {
-            r: 0.1,
-            g: 0.2,
-            b: 0.3,
-            a: 1.0,
-        };
+        // Original shader 
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -104,6 +100,48 @@ impl State {
             },
             multiview: None, // 5.
         });
+
+        // Challenge shader
+
+        let shader_alt = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Alt shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader_alt.wgsl").into()),
+        });
+
+        let render_pipeline_alt = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_alt,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_alt,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
             
 
         Self {
@@ -113,8 +151,9 @@ impl State {
             queue,
             config,
             size,
-            color,
             render_pipeline,
+            render_pipeline_alt,
+            use_alt: false,
         }
     }
 
@@ -133,20 +172,19 @@ impl State {
 
     fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
-            WindowEvent::CursorMoved{position, ..} => {
-
-                self.color = wgpu::Color {
-                    r: position.x as f64 / self.config.width as f64,
-                    g: position.y as f64/ self.config.height as f64,
-                    b: 1.0,
-                    a: 1.0,
-                };
+            WindowEvent::KeyboardInput {
+                input: KeyboardInput {
+                    state, 
+                    virtual_keycode: Some(VirtualKeyCode::Space),
+                    ..
+                },
+                ..
+            } => {
+                self.use_alt = *state == ElementState::Released;
+                true
             },
-            _ => {}
+            _ => false
         }
-        
-        
-        false
     }
 
     fn update(&mut self) {}
@@ -166,14 +204,23 @@ impl State {
                 view: &view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(self.color),
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.8,
+                        g: 0.2,
+                        b: 0.4,
+                        a: 1.0,
+                    }),
                     store: true,
                 },
             })],
             depth_stencil_attachment: None,
         });
 
-        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_pipeline(if self.use_alt {
+            &self.render_pipeline
+        } else {
+            &self.render_pipeline_alt
+        });
         render_pass.draw(0..3, 0..1);
 
         drop(render_pass);        
