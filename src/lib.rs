@@ -13,6 +13,7 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     window: Window,
+    color: wgpu::Color,
 }
 
 impl State {
@@ -49,6 +50,13 @@ impl State {
         };
 
         surface.configure(&device, &config);
+
+        let color = wgpu::Color {
+            r: 0.1,
+            g: 0.2,
+            b: 0.3,
+            a: 1.0,
+        };
         
         Self {
             window,
@@ -57,6 +65,7 @@ impl State {
             queue,
             config,
             size,
+            color,
         }
     }
 
@@ -74,16 +83,29 @@ impl State {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        false    
+        match event {
+            WindowEvent::CursorMoved{position, ..} => {
+
+                self.color = wgpu::Color {
+                    r: position.x as f64 / self.config.width as f64,
+                    g: position.y as f64/ self.config.height as f64,
+                    b: 1.0,
+                    a: 1.0,
+                };
+            },
+            _ => {}
+        }
+        
+        
+        false
     }
 
-    fn update(&mut self) {
-        // remove todo!()
-    }
+    fn update(&mut self) {}
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
@@ -95,12 +117,7 @@ impl State {
                 view: &view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.1,
-                        g: 0.2,
-                        b: 0.3,
-                        a: 1.0,
-                    }),
+                    load: wgpu::LoadOp::Clear(self.color),
                     store: true,
                 },
             })],
@@ -127,26 +144,28 @@ pub async fn run() {
       Event::WindowEvent {
           ref event,
           window_id,
-      } if window_id == state.window.id() => if !state.input(event) {
-        match event {
-            WindowEvent::CloseRequested
-            | WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state: ElementState::Pressed,
-                        virtual_keycode: Some(VirtualKeyCode::Escape),
+      } if window_id == state.window.id() => {
+            if !state.input(event) {
+                match event {
+                    WindowEvent::CloseRequested
+                    | WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode: Some(VirtualKeyCode::Escape),
+                                ..
+                            },
                         ..
-                    },
-                ..
-            } => *control_flow = ControlFlow::Exit,
-            WindowEvent::Resized(physical_size) => {
-                state.resize(*physical_size);
-            }
-            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                state.resize(**new_inner_size);
-            }
-            _ => {}        
-        }
+                    } => *control_flow = ControlFlow::Exit,
+                    WindowEvent::Resized(physical_size) => {
+                        state.resize(*physical_size);
+                    }
+                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        state.resize(**new_inner_size);
+                    }
+                    _ => {}        
+                }
+            }    
       },
       Event::RedrawRequested(window_id) if window_id == state.window().id() => {
         state.update();
