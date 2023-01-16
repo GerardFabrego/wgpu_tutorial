@@ -16,18 +16,10 @@ struct State {
 }
 
 impl State {
-    // Creating some of the wgpu types requires async code
     async fn new(window: Window) -> Self {
         let size = window.inner_size();
-
-        // The instance is a handle to our GPU
-        // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = wgpu::Instance::new(wgpu::Backends::all());
         
-        // # Safety
-        //
-        // The surface needs to live as long as the window that created it.
-        // State owns the window so this should be safe.
         let surface = unsafe { instance.create_surface(&window) };
 
         let adapter = instance.request_adapter(
@@ -44,7 +36,7 @@ impl State {
                 limits: wgpu::Limits::default(),
                 label: None,
             },
-            None, // Trace path
+            None,
         ).await.unwrap();
 
         let config = wgpu::SurfaceConfiguration {
@@ -117,7 +109,6 @@ impl State {
 
         drop(render_pass);        
         
-        // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
     
