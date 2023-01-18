@@ -1957,7 +1957,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "wgpu_test"
+name = "wgpu_tutorial"
 version = "0.1.0"
 dependencies = [
  "anyhow",
